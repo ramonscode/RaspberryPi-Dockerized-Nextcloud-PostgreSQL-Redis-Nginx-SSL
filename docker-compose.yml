@@ -1,0 +1,87 @@
+version: '3'
+
+services:
+  db:
+    image: postgres
+    container_name: nextcloud-db
+    restart: always
+    volumes:
+      - db:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=nextcloud
+      - POSTGRES_USER=mypostgresuser
+      - POSTGRES_PASSWORD=mypostgrespassword
+    networks:
+      - nextcloud-network
+  
+  redis:
+    image: redis:latest
+    container_name: nextcloud-redis
+    restart: always
+    volumes:
+      - redis:/var/lib/redis
+    networks:
+      - nextcloud-network
+
+  app:
+    image: nextcloud:stable-fpm-alpine
+    container_name: nextcloud-app
+    restart: always
+    volumes:
+      - nextcloud:/var/www/html
+    environment:
+      - POSTGRES_DB=nextcloud
+      - POSTGRES_USER=mypostgresuser
+      - POSTGRES_PASSWORD=mypostgrespassword
+      - POSTGRES_HOST=db
+      - REDIS_HOST=redis
+      - NEXTCLOUD_ADMIN_USER=mynextcloudadmin
+      - NEXTCLOUD_ADMIN_PASSWORD=mynextcloudadminpassword
+      - NEXTCLOUD_TRUSTED_DOMAINS=mytrustedomain.com mytrusteddomain2.com 192.168.XXX.XXX #separated by spaces
+    depends_on:
+      - db
+      - redis
+    networks:
+      - nextcloud-network
+
+  nginx:
+    image: nginx
+    container_name: nextcloud-web
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - nextcloud:/var/www/nextcloud
+      - ./data/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./data/certbot/conf:/etc/letsencrypt
+      - ./data/certbot/www:/var/www/certbot
+    depends_on:
+      - app
+    volumes_from:
+      - app
+    networks:
+      - nextcloud-network
+
+  certbot:
+    image: certbot/certbot:arm32v6-latest #arm64v8-latest for arm64 system
+    container_name: nextcloud-ssl
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    volumes:
+      - ./data/certbot/conf:/etc/letsencrypt
+      - ./data/certbot/www:/var/www/certbot
+    networks:
+      - nextcloud-network
+
+volumes:
+  db:
+    name: nextcloud-db
+  nextcloud:
+    name: nextcloud
+  redis:
+    name: redis
+
+networks:
+  nextcloud-network:
+    name: nextcloud-network
